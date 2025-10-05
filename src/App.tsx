@@ -1,4 +1,5 @@
 import React from 'react'
+import XRDemo from './components/XRDemo'
 
 export default function App() {
   const year = new Date().getFullYear()
@@ -28,6 +29,8 @@ export default function App() {
           <li>Export and share sketches</li>
         </ul>
       </section>
+
+      <XRDemo />
 
       <footer>
         <p>© {year} latentsculpt</p>
