@@ -1,0 +1,4 @@
+# Allow everything; no sitemap yet.
+User-agent: *
+Allow: /
+
