@@ -7,12 +7,15 @@ type Support = { ar: boolean; vr: boolean }
 
 export default function XRDemo() {
   const [support, setSupport] = useState<Support>({ ar: false, vr: false })
+  const [rendererReady, setRendererReady] = useState(false)
+  const [inXR, setInXR] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
   const store = useMemo(
     () =>
       createXRStore({
         offerSession: false,
-        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'layers', 'dom-overlay'],
-        domOverlay: { root: document.body },
+        // Keep features optional; let the runtime pick what's available
+        domOverlay: true,
       }),
     []
   )
@@ -38,21 +41,51 @@ export default function XRDemo() {
     }
   }, [])
 
+  // reflect session state for UI
+  useEffect(() => {
+    const unsub = store.subscribe((state) => {
+      setInXR(state.session != null)
+    })
+    return unsub
+  }, [store])
+
   return (
     <section className="card">
       <h2>Try the XR demo</h2>
       <p>Open in the Meta Quest Browser and tap a button below.</p>
       <div style={{ display: 'flex', gap: 12, margin: '12px 0' }}>
         {support.ar && (
-          <button onClick={() => store.enterAR().catch(console.error)}>Enter AR</button>
+          <button
+            disabled={!rendererReady}
+            onClick={() => store.enterAR().then(() => setErr(null)).catch((e: any) => setErr(String(e?.message ?? e)))}
+          >
+            {rendererReady ? 'Enter AR' : 'Initializing…'}
+          </button>
         )}
         {support.vr && (
-          <button onClick={() => store.enterVR().catch(console.error)}>Enter VR</button>
+          <button
+            disabled={!rendererReady}
+            onClick={() => store.enterVR().then(() => setErr(null)).catch((e: any) => setErr(String(e?.message ?? e)))}
+          >
+            {rendererReady ? 'Enter VR' : 'Initializing…'}
+          </button>
+        )}
+        {inXR && (
+          <button onClick={() => store.getState().session?.end()}>Exit</button>
         )}
         {!support.ar && !support.vr && <button disabled>XR not supported</button>}
       </div>
+      {err && <p style={{ color: '#ff7a7a' }}>XR error: {err}</p>}
 
-      <Canvas style={{ height: 420 }} gl={{ antialias: true }}>
+      <Canvas
+        style={{ height: 420 }}
+        gl={{ antialias: true, alpha: true }}
+        onCreated={({ gl }) => {
+          // Ensure the WebXRManager is enabled before attempting to enter a session
+          gl.xr.enabled = true
+          setRendererReady(true)
+        }}
+      >
         <XR store={store}>
           <ambientLight intensity={0.6} />
           <directionalLight position={[2, 2, 1]} intensity={0.8} />
