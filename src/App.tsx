@@ -20,11 +20,13 @@ export default function App() {
 
       <section className="card">
         <h3>Status</h3>
-        <p>Early scaffold. First interactive XR experiment coming soon.</p>
-        <p>Version: 0.1.1-alpha</p>
+        <p>Early scaffold for interactive XR experiment.</p>
+        <p>
+          Version: {__APP_VERSION__} • {__GIT_COMMIT__}
+        </p>
         <h3>Next steps</h3>
         <ul>
-          <li>Bootstrap a WebXR session and scene</li>
+            <li><s>Bootstrap a WebXR session and scene</s></li>
           <li>Prototype 3D stroke capture and rendering</li>
           <li>Experiment with touch/pen/gesture input</li>
           <li>Export and share sketches</li>

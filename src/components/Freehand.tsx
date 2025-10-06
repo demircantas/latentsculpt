@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import { Line, Text } from '@react-three/drei'
 import { Vector3, Quaternion, DoubleSide } from 'three'
 import { useXR, useXRStore, XRSpace } from '@react-three/xr'
@@ -13,7 +13,14 @@ type Stroke = {
 
 // Utility: get the primary controller state from XR input sources
 function usePrimaryController() {
-  return useXR((xr: any) => xr.inputSourceStates.find((s: any) => s.type === 'controller' && s.isPrimary)) as any
+  return useXR((xr: any) => {
+    const list = xr.inputSourceStates.filter((s: any) => s.type === 'controller')
+    return (
+      list.find((s: any) => s.inputSource?.handedness === 'right') ||
+      list.find((s: any) => s.inputSource?.handedness === 'left') ||
+      list[0]
+    )
+  }) as any
 }
 
 export default function Freehand() {
@@ -25,6 +32,7 @@ export default function Freehand() {
   const tmp = useMemo(() => new Vector3(), [])
   const forwardRef = useMemo(() => new Vector3(), [])
   const quatRef = useMemo(() => new Quaternion(), [])
+  const { gl } = useThree()
   const lastBPressed = useRef(false)
   const lastTriggerPressed = useRef(false)
   const reticleRef = useRef<any>(null)
@@ -46,8 +54,23 @@ export default function Freehand() {
   useFrame(() => {
     if (!inXR || !controller) return
 
-    // Controller object world transform
-    const obj = controller.object ?? controller
+    // Controller object world transform from WebXRManager (more robust than waiting for model)
+    // Try to resolve the correct controller/grip by handedness; fall back to 0/1
+    let obj: any
+    const handed = controller?.inputSource?.handedness
+    for (let i = 0; i < 2; i++) {
+      const grip = gl.xr.getControllerGrip(i)
+      const ctrl = gl.xr.getController(i)
+      const cand = grip || ctrl
+      // Some runtimes set handedness on userData; others via inputSource
+      const candHand = (cand as any)?.userData?.handedness || handed
+      if (handed == null || candHand === handed) {
+        obj = cand
+        break
+      }
+      if (obj == null) obj = cand
+    }
+    if (!obj) return
     if (!obj) return
 
     // Compute a pen-tip offset in front of controller (−Z is forward)
