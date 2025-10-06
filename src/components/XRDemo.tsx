@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { XR, createXRStore } from '@react-three/xr'
 import { OrbitControls } from '@react-three/drei'
+import Freehand from './Freehand'
 
 type Support = { ar: boolean; vr: boolean }
 
@@ -94,6 +95,8 @@ export default function XRDemo() {
             <boxGeometry args={[0.25, 0.25, 0.25]} />
             <meshStandardMaterial color="#6ee7ff" />
           </mesh>
+
+          <Freehand />
         </XR>
         <OrbitControls enablePan={false} />
       </Canvas>
