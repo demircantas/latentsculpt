@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { XR, createXRStore } from '@react-three/xr'
+import { XR, createXRStore, useXR } from '@react-three/xr'
 import { OrbitControls } from '@react-three/drei'
 import Freehand from './Freehand'
 
@@ -15,8 +15,17 @@ export default function XRDemo() {
     () =>
       createXRStore({
         offerSession: false,
-        // Keep features optional; let the runtime pick what's available
-        domOverlay: true,
+        // Prefer browser's WebXR Emulator extension; avoid double emulation.
+        emulate: false,
+        // Keep overlay off to minimize polyfill feature surface on desktop.
+        domOverlay: false,
+        frameBufferScaling: 'mid',
+        // Reduce optional features to avoid unsupported warnings in emulators
+        layers: false,
+        meshDetection: false,
+        planeDetection: false,
+        depthSensing: false,
+        bodyTracking: false,
       }),
     []
   )
@@ -97,9 +106,16 @@ export default function XRDemo() {
           </mesh>
 
           <Freehand />
+
+          <NonXRControls />
         </XR>
-        <OrbitControls enablePan={false} />
+        
       </Canvas>
     </section>
   )
+}
+
+function NonXRControls() {
+  const inXR = useXR((s) => s.session != null)
+  return !inXR ? <OrbitControls enablePan={false} /> : null
 }

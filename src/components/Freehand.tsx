@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useFrame } from '@react-three/fiber'
 import { Line, Text } from '@react-three/drei'
-import { Vector3, Quaternion } from 'three'
-import { useXR, useXRStore } from '@react-three/xr'
+import { Vector3, Quaternion, DoubleSide } from 'three'
+import { useXR, useXRStore, XRSpace } from '@react-three/xr'
 
 type Stroke = {
   id: number
@@ -27,6 +26,11 @@ export default function Freehand() {
   const lastBPressed = useRef(false)
   const lastTriggerPressed = useRef(false)
   const reticleRef = useRef<any>(null)
+  const lastSampleTime = useRef(0)
+  const MAX_POINTS = 2000
+  const MAX_STROKES = 200
+  const MIN_DT_MS = 16
+  const EPS = 0.02
 
   // reflect session presence for UI/env decisions
   const store = useXRStore()
@@ -75,17 +79,24 @@ export default function Freehand() {
 
     // Continue stroke while holding
     if (triggerPressed && active) {
+      const now = performance.now()
+      const dt = now - lastSampleTime.current
       const last = active.points[active.points.length - 1]
-      if (last.distanceTo(tip) > 0.01) {
-        // Append point with simple decimation threshold
-        setActive((s) => (s ? { ...s, points: [...s.points, tip.clone()] } : s))
+      if (dt >= MIN_DT_MS && last.distanceTo(tip) > EPS) {
+        lastSampleTime.current = now
+        setActive((s) => (s ? { ...s, points: s.points.length < MAX_POINTS ? [...s.points, tip.clone()] : s.points } as Stroke : s))
+      }
+      if (active.points.length >= MAX_POINTS) {
+        // finalize early if too long
+        setStrokes((prev) => [...prev.slice(Math.max(0, prev.length - (MAX_STROKES - 1))), active])
+        setActive(null)
       }
     }
 
     // End stroke on trigger up
     if (!triggerPressed && lastTriggerPressed.current && active) {
       // finalize if has enough points
-      setStrokes((prev) => (active.points.length > 1 ? [...prev, active] : prev))
+      setStrokes((prev) => (active.points.length > 1 ? [...prev.slice(Math.max(0, prev.length - (MAX_STROKES - 1))), active] : prev))
       setActive(null)
     }
 
@@ -108,37 +119,44 @@ export default function Freehand() {
       {/* Active stroke preview */}
       {active && <Line points={active.points} color={active.color} linewidth={active.width} transparent opacity={0.85} />}
 
-      {/* Instruction board near the user */}
-      <group position={[0, 1.35, -0.8]}>
-        <mesh>
-          <planeGeometry args={[0.6, 0.2]} />
-          <meshStandardMaterial color="#15171c" opacity={0.9} transparent />
-        </mesh>
-        <Text
-          position={[0, 0, 0.005]}
-          fontSize={0.06}
-          color="#e8eef2"
-          anchorX="center"
-          anchorY="middle"
-          maxWidth={0.55}
-        >
-          Hold Trigger to draw • Press B to undo
-        </Text>
-      </group>
-
-      {/* DOM overlay controls (visible in-headset when overlay is available) */}
-      {inXR && (store.getState().domOverlayRoot as Element | undefined) &&
-        createPortal(
-          <div style={{ position: 'absolute', inset: 12, display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #232631', background: '#15171c', color: '#e8eef2' }}
-              onClick={() => setStrokes((prev) => prev.slice(0, -1))}
+      {/* Instruction board: anchor to viewer when in XR so it's always visible */}
+      {inXR ? (
+        <XRSpace space="viewer">
+          <group position={[0, 0, -0.8]}>
+            <mesh>
+              <planeGeometry args={[0.6, 0.2]} />
+              <meshStandardMaterial color="#15171c" opacity={0.9} transparent side={DoubleSide} />
+            </mesh>
+            <Text
+              position={[0, 0, 0.005]}
+              fontSize={0.06}
+              color="#e8eef2"
+              anchorX="center"
+              anchorY="middle"
+              maxWidth={0.55}
             >
-              Undo
-            </button>
-          </div>,
-          store.getState().domOverlayRoot as Element
-        )}
+              Hold Trigger to draw • Press B/Y to undo
+            </Text>
+          </group>
+        </XRSpace>
+      ) : (
+        <group position={[0, 1.35, -0.8]}>
+          <mesh>
+            <planeGeometry args={[0.6, 0.2]} />
+            <meshStandardMaterial color="#15171c" opacity={0.9} transparent side={DoubleSide} />
+          </mesh>
+          <Text
+            position={[0, 0, 0.005]}
+            fontSize={0.06}
+            color="#e8eef2"
+            anchorX="center"
+            anchorY="middle"
+            maxWidth={0.55}
+          >
+            Hold Trigger to draw • Press B/Y to undo
+          </Text>
+        </group>
+      )}
     </group>
   )
 }
