@@ -7,13 +7,13 @@ export default function App() {
     <main className="wrap">
       <header>
         <h1>latentsculpt</h1>
-        <p className="tag">generative design × HCI × fabrication</p>
+        <p className="tag">generative design x HCI x fabrication</p>
       </header>
 
       <section className="card">
         <h2>Augmented reality drawings</h2>
         <p>
-          A work‑in‑progress research project exploring spatial sketching in AR. This
+          A work-in-progress research project exploring spatial sketching in AR. This
           demo site will host small prototypes and notes as the work evolves.
         </p>
       </section>

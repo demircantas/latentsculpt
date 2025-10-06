@@ -11,7 +11,7 @@ type Stroke = {
   width: number
 }
 
-// Utility: get the primary controller state from XR input sources
+// Utility: read the primary controller state if available (optional)
 function usePrimaryController() {
   return useXR((xr: any) => {
     const list = xr.inputSourceStates.filter((s: any) => s.type === 'controller')
@@ -41,6 +41,9 @@ export default function Freehand() {
   const MAX_STROKES = 200
   const MIN_DT_MS = 16
   const EPS = 0.02
+  // XR event-based fallbacks (works without controller profile downloads)
+  const holdingRef = useRef(false)
+  const lastSourceRef = useRef<XRInputSource | null>(null)
 
   // reflect session presence for UI/env decisions
   const store = useXRStore()
@@ -50,83 +53,131 @@ export default function Freehand() {
     return unsub
   }, [store])
 
-  // Per-frame drawing logic
-  useFrame(() => {
-    if (!inXR || !controller) return
+  // Bind XRSession select/squeeze events to support drawing without controller profiles
+  useEffect(() => {
+    const session = store.getState().session as XRSession | undefined
+    if (!session) return
 
-    // Controller object world transform from WebXRManager (more robust than waiting for model)
-    // Try to resolve the correct controller/grip by handedness; fall back to 0/1
-    let obj: any
-    const handed = controller?.inputSource?.handedness
-    for (let i = 0; i < 2; i++) {
-      const grip = gl.xr.getControllerGrip(i)
-      const ctrl = gl.xr.getController(i)
-      const cand = grip || ctrl
-      // Some runtimes set handedness on userData; others via inputSource
-      const candHand = (cand as any)?.userData?.handedness || handed
-      if (handed == null || candHand === handed) {
-        obj = cand
-        break
-      }
-      if (obj == null) obj = cand
+    const onSelectStart = (e: XRInputSourceEvent) => {
+      holdingRef.current = true
+      lastSourceRef.current = e.inputSource
+      // initialize a new stroke; tip position will be sampled on next frame
+      const id = idRef.current++
+      lastSampleTime.current = performance.now()
+      // initialize with a single point which will be immediately updated
+      setActive({ id, points: [], color: '#6ee7ff', width: 3 })
     }
-    if (!obj) return
-    if (!obj) return
 
-    // Compute a pen-tip offset in front of controller (−Z is forward)
-    obj.updateWorldMatrix(true, false)
-    obj.getWorldPosition(tmp)
-    obj.getWorldQuaternion(quatRef)
-    forwardRef.set(0, 0, -1).applyQuaternion(quatRef)
-    const tip = tmp.clone().add(forwardRef.multiplyScalar(0.06))
+    const onSelectEnd = () => {
+      holdingRef.current = false
+      // finalize if has enough points
+      setActive((curr) => {
+        if (!curr) return null
+        setStrokes((prev) => (curr.points.length > 1 ? [...prev.slice(Math.max(0, prev.length - (MAX_STROKES - 1))), curr] : prev))
+        return null
+      })
+    }
+
+    const onSqueezeStart = () => {
+      // fallback undo without relying on gamepad component mapping
+      setStrokes((prev) => prev.slice(0, -1))
+    }
+
+    session.addEventListener('selectstart', onSelectStart)
+    session.addEventListener('selectend', onSelectEnd)
+    session.addEventListener('squeezestart', onSqueezeStart)
+    return () => {
+      session.removeEventListener('selectstart', onSelectStart)
+      session.removeEventListener('selectend', onSelectEnd)
+      session.removeEventListener('squeezestart', onSqueezeStart)
+    }
+  }, [store])
+
+  // Per-frame drawing logic
+  useFrame((state, _delta, frame) => {
+    if (!inXR) return
+
+    // Compute controller tip via XRFrame pose first (works without profiles)
+    let tip: Vector3 | null = null
+    const referenceSpace = (state.gl.xr.getReferenceSpace?.() as XRReferenceSpace | undefined) ?? undefined
+    const source = lastSourceRef.current
+    if (frame && referenceSpace && source) {
+      const space = (source as any).gripSpace ?? source.targetRaySpace
+      const pose = frame.getPose(space, referenceSpace)
+      if (pose) {
+        const { position, orientation } = pose.transform
+        tmp.set(position.x, position.y, position.z)
+        quatRef.set(orientation.x, orientation.y, orientation.z, orientation.w)
+        forwardRef.set(0, 0, -1).applyQuaternion(quatRef)
+        tip = tmp.clone().add(forwardRef.multiplyScalar(0.06))
+      }
+    }
+
+    // Fallback to three.js WebXRManager controller objects (grip/controller)
+    if (!tip) {
+      let obj: any
+      const handed = controller?.inputSource?.handedness
+      for (let i = 0; i < 2; i++) {
+        const grip = gl.xr.getControllerGrip(i)
+        const ctrl = gl.xr.getController(i)
+        const cand = grip || ctrl
+        const candHand = (cand as any)?.userData?.handedness || handed
+        if (handed == null || candHand === handed) {
+          obj = cand
+          break
+        }
+        if (obj == null) obj = cand
+      }
+      if (!obj) return
+      obj.updateWorldMatrix(true, false)
+      obj.getWorldPosition(tmp)
+      obj.getWorldQuaternion(quatRef)
+      forwardRef.set(0, 0, -1).applyQuaternion(quatRef)
+      tip = tmp.clone().add(forwardRef.multiplyScalar(0.06))
+    }
 
     // Move reticle
-    if (reticleRef.current) {
+    if (reticleRef.current && tip) {
       reticleRef.current.position.copy(tip)
     }
 
-    // Gamepad states
-    const gamepad = controller.gamepad as Record<string, { state: string } | undefined>
+    // Optional: retain gamepad-based inputs when profiles are available
+    const gamepad = controller?.gamepad as Record<string, { state: string } | undefined> | undefined
     const triggerPressed = gamepad?.['xr-standard-trigger']?.state === 'pressed'
     const bPressed = gamepad?.['b-button']?.state === 'pressed' || gamepad?.['y-button']?.state === 'pressed'
 
-    // Handle undo via B button (edge)
     if (bPressed && !lastBPressed.current) {
       setStrokes((prev) => prev.slice(0, -1))
     }
     lastBPressed.current = !!bPressed
 
-    // Start stroke on trigger down
+    // Edge-detect trigger -> also update holdingRef when profiles exist
     if (triggerPressed && !lastTriggerPressed.current) {
+      holdingRef.current = true
       const id = idRef.current++
       lastSampleTime.current = performance.now()
-      setActive({ id, points: [tip.clone()], color: '#6ee7ff', width: 3 })
+      setActive({ id, points: [], color: '#6ee7ff', width: 3 })
     }
+    if (!triggerPressed && lastTriggerPressed.current) {
+      holdingRef.current = false
+    }
+    lastTriggerPressed.current = !!triggerPressed
 
-    // Continue stroke while holding
-    if (triggerPressed && active) {
+    // Continue stroke while holding (from either events or gamepad)
+    if (holdingRef.current && active && tip) {
       const now = performance.now()
       const dt = now - lastSampleTime.current
       const last = active.points[active.points.length - 1]
-      if (dt >= MIN_DT_MS && last.distanceTo(tip) > EPS) {
+      if (last == null || (dt >= MIN_DT_MS && last.distanceTo(tip) > EPS)) {
         lastSampleTime.current = now
-        setActive((s) => (s ? { ...s, points: s.points.length < MAX_POINTS ? [...s.points, tip.clone()] : s.points } as Stroke : s))
+        setActive((s) => (s ? { ...s, points: s.points.length < MAX_POINTS ? [...s.points, tip!.clone()] : s.points } as Stroke : s))
       }
       if (active.points.length >= MAX_POINTS) {
-        // finalize early if too long
         setStrokes((prev) => [...prev.slice(Math.max(0, prev.length - (MAX_STROKES - 1))), active])
         setActive(null)
+        holdingRef.current = false
       }
     }
-
-    // End stroke on trigger up
-    if (!triggerPressed && lastTriggerPressed.current && active) {
-      // finalize if has enough points
-      setStrokes((prev) => (active.points.length > 1 ? [...prev.slice(Math.max(0, prev.length - (MAX_STROKES - 1))), active] : prev))
-      setActive(null)
-    }
-
-    lastTriggerPressed.current = !!triggerPressed
   })
 
   return (
@@ -161,7 +212,7 @@ export default function Freehand() {
               anchorY="middle"
               maxWidth={0.55}
             >
-              Hold Trigger to draw • Press B/Y to undo
+              Hold Trigger to draw • Press B/Y or Grip to undo
             </Text>
           </group>
         </XRSpace>
@@ -179,7 +230,7 @@ export default function Freehand() {
             anchorY="middle"
             maxWidth={0.55}
           >
-            Hold Trigger to draw • Press B/Y to undo
+            Hold Trigger to draw • Press B/Y or Grip to undo
           </Text>
         </group>
       )}
