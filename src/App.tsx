@@ -21,6 +21,7 @@ export default function App() {
       <section className="card">
         <h3>Status</h3>
         <p>Early scaffold. First interactive XR experiment coming soon.</p>
+        <p>Version: 0.1.0-alpha</p>
         <h3>Next steps</h3>
         <ul>
           <li>Bootstrap a WebXR session and scene</li>
