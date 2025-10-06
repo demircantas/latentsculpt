@@ -23,6 +23,8 @@ export default function Freehand() {
   const controller = usePrimaryController()
   const idRef = useRef(1)
   const tmp = useMemo(() => new Vector3(), [])
+  const forwardRef = useMemo(() => new Vector3(), [])
+  const quatRef = useMemo(() => new Quaternion(), [])
   const lastBPressed = useRef(false)
   const lastTriggerPressed = useRef(false)
   const reticleRef = useRef<any>(null)
@@ -51,9 +53,9 @@ export default function Freehand() {
     // Compute a pen-tip offset in front of controller (−Z is forward)
     obj.updateWorldMatrix(true, false)
     obj.getWorldPosition(tmp)
-    const forward = new Vector3(0, 0, -1)
-    forward.applyQuaternion(obj.getWorldQuaternion(new Quaternion()))
-    const tip = tmp.clone().add(forward.multiplyScalar(0.06))
+    obj.getWorldQuaternion(quatRef)
+    forwardRef.set(0, 0, -1).applyQuaternion(quatRef)
+    const tip = tmp.clone().add(forwardRef.multiplyScalar(0.06))
 
     // Move reticle
     if (reticleRef.current) {
@@ -74,6 +76,7 @@ export default function Freehand() {
     // Start stroke on trigger down
     if (triggerPressed && !lastTriggerPressed.current) {
       const id = idRef.current++
+      lastSampleTime.current = performance.now()
       setActive({ id, points: [tip.clone()], color: '#6ee7ff', width: 3 })
     }
 

@@ -1,5 +1,5 @@
-import React from 'react'
-import XRDemo from './components/XRDemo'
+import React, { Suspense, useMemo } from 'react'
+const XRDemo = React.lazy(() => import('./components/XRDemo'))
 
 export default function App() {
   const year = new Date().getFullYear()
@@ -21,7 +21,7 @@ export default function App() {
       <section className="card">
         <h3>Status</h3>
         <p>Early scaffold. First interactive XR experiment coming soon.</p>
-        <p>Version: 0.1.0-alpha</p>
+        <p>Version: 0.1.1-alpha</p>
         <h3>Next steps</h3>
         <ul>
           <li>Bootstrap a WebXR session and scene</li>
@@ -31,7 +31,9 @@ export default function App() {
         </ul>
       </section>
 
-      <XRDemo />
+      <Suspense fallback={<div>Loading XR module…</div>}>
+        <XRDemo />
+      </Suspense>
 
       <footer>
         <p>© {year} latentsculpt</p>

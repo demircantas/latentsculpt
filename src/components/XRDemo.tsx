@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { XR, createXRStore, useXR } from '@react-three/xr'
 import { OrbitControls } from '@react-three/drei'
 import Freehand from './Freehand'
+import ErrorBoundary from './ErrorBoundary'
 
 type Support = { ar: boolean; vr: boolean }
 
@@ -11,24 +12,32 @@ export default function XRDemo() {
   const [rendererReady, setRendererReady] = useState(false)
   const [inXR, setInXR] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const store = useMemo(
-    () =>
-      createXRStore({
-        offerSession: false,
-        // Prefer browser's WebXR Emulator extension; avoid double emulation.
-        emulate: false,
-        // Keep overlay off to minimize polyfill feature surface on desktop.
-        domOverlay: false,
-        frameBufferScaling: 'mid',
-        // Reduce optional features to avoid unsupported warnings in emulators
-        layers: false,
-        meshDetection: false,
-        planeDetection: false,
-        depthSensing: false,
-        bodyTracking: false,
-      }),
-    []
-  )
+  const store = useMemo(() => {
+    const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '')
+    const emulateParam = params.get('emulate') // 'pmndrs' | 'extension' | 'off'
+    const overlayParam = params.get('overlay') // '1' | '0'
+    const fbsParam = params.get('fbs') // 'high' | 'mid' | 'low'
+    const controllersParam = params.get('controllers') // '1' | '0'
+
+    const emulate = emulateParam === 'pmndrs' ? { inject: { hostname: 'localhost' } } : false
+    const domOverlay = overlayParam === '1'
+    const frameBufferScaling = fbsParam === 'high' || fbsParam === 'low' ? fbsParam : 'mid'
+    const controller = controllersParam === '0' ? false : true
+
+    return createXRStore({
+      offerSession: false,
+      emulate,
+      domOverlay,
+      frameBufferScaling,
+      controller,
+      // Keep optional features conservative for stability in emulators
+      layers: false,
+      meshDetection: false,
+      planeDetection: false,
+      depthSensing: false,
+      bodyTracking: false,
+    })
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -96,19 +105,21 @@ export default function XRDemo() {
           setRendererReady(true)
         }}
       >
-        <XR store={store}>
-          <ambientLight intensity={0.6} />
-          <directionalLight position={[2, 2, 1]} intensity={0.8} />
+        <ErrorBoundary>
+          <XR store={store}>
+            <ambientLight intensity={0.6} />
+            <directionalLight position={[2, 2, 1]} intensity={0.8} />
 
-          <mesh position={[0, 1.2, -1]}>
-            <boxGeometry args={[0.25, 0.25, 0.25]} />
-            <meshStandardMaterial color="#6ee7ff" />
-          </mesh>
+            <mesh position={[0, 1.2, -1]}>
+              <boxGeometry args={[0.25, 0.25, 0.25]} />
+              <meshStandardMaterial color="#6ee7ff" />
+            </mesh>
 
-          <Freehand />
+            <Freehand />
 
-          <NonXRControls />
-        </XR>
+            <NonXRControls />
+          </XR>
+        </ErrorBoundary>
         
       </Canvas>
     </section>
